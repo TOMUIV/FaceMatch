@@ -1,0 +1,12 @@
+# 核心依赖
+insightface>=0.7.3
+onnxruntime>=1.15.0
+
+# 图像处理
+opencv-python>=4.8.0
+pillow>=10.0.0
+numpy>=1.24.0
+
+# 进度条
+tqdm>=4.65.0
+
