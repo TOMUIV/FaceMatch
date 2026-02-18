@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时人脸识别系统</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            overflow-x: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 5px;
+            color: #4fc3f7;
+        }
+        
+        .header .subtitle {
+            font-size: 1em;
+            opacity: 0.8;
+        }
+        
+        .performance-info {
+            font-size: 0.9em;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .video-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: #000;
+        }
+        
+        .video-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #videoElement {
+            display: none;
+        }
+        
+        #canvasElement {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+        
+        .controls-panel {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            border-top: 1px solid #333;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stats-panel {
+            display: none; /* 隐藏状态栏 */
+        }
+        
+        .stats-panel h2 {
+            margin-bottom: 15px;
+            text-align: center;
+            color: #4fc3f7;
+            font-size: 1.4em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 6px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-item.highlight {
+            background: rgba(79, 195, 247, 0.2);
+            transform: scale(1.05);
+        }
+        
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin: 5px 0;
+            color: #4fc3f7;
+        }
+        
+        .stat-label {
+            font-size: 0.8em;
+            opacity: 0.8;
+        }
+        
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            background: #2196f3;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        
+        button:hover {
+            background: #1976d2;
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        button.stop {
+            background: #f44336;
+        }
+        
+        button.stop:hover {
+            background: #d32f2f;
+        }
+        
+        button.success {
+            background: #4caf50;
+        }
+        
+        button.success:hover {
+            background: #388e3c;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f44336;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: #4caf50;
+        }
+        
+        .status-dot.camera-active {
+            background: #ff9800;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .logs-section {
+            background: #0a0a0a;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            flex: 1;
+        }
+        
+        .log-entry {
+            margin-bottom: 4px;
+        }
+        
+        .log-timestamp {
+            color: #666;
+            margin-right: 8px;
+        }
+        
+        .resolution-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
+        .fps-counter {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
+        .latency-info {
+            position: absolute;
+            top: 40px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            color: #ccc;
+        }
+        
+        .camera-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        select {
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            font-size: 14px;
+            min-width: 150px;
+        }
+        
+        .quality-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+        
+        .quality-slider {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .quality-label {
+            font-size: 0.8em;
+            opacity: 0.8;
+        }
+        
+        input[type="range"] {
+            width: 100px;
+        }
+        
+        .optimization-badge {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(76, 175, 80, 0.8);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.7em;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-container {
+                flex-direction: column;
+            }
+            
+            .stats-panel {
+                width: 100%;
+                max-height: 300px;
+                border-left: none;
+                border-top: 1px solid #333;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls-panel {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            button {
+                width: 100%;
+            }
+            
+            .camera-selector, .quality-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            select, input[type="range"] {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 实时人脸识别系统</h1>
+        <div class="subtitle">基于深度学习的人脸识别技术</div>
+        <div class="performance-info">延迟优化版 | WebSocket实时通信</div>
+    </div>
+    
+    <div class="main-container">
+        <div class="video-section">
+            <div class="video-container">
+                <video id="videoElement" autoplay playsinline></video>
+                <canvas id="canvasElement"></canvas>
+                <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+                <div class="latency-info" id="latencyInfo">延迟: 0ms</div>
+                <div class="resolution-info" id="resolutionInfo">分辨率: 未启动</div>
+
+            </div>
+            
+            <div class="controls-panel">
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">等待连接...</span>
+                </div>
+                
+                <button onclick="startCamera()" id="startBtn">
+                    📹 启动摄像头
+                </button>
+                <button onclick="stopCamera()" id="stopBtn" disabled class="stop">
+                    ⏹ 停止摄像头
+                </button>
+                
+                <div class="camera-selector" id="cameraSelector" style="display: none;">
+                    <label for="cameraSelect">摄像头:</label>
+                    <select id="cameraSelect" onchange="switchCamera()"></select>
+                </div>
+                
+                <button onclick="takeScreenshot()" id="screenshotBtn" disabled class="success">
+                    📸 截图
+                </button>
+                
+
+                
+                <button onclick="toggleLogs()" id="logsBtn">
+                    📋 日志
+                </button>
+            </div>
+        </div>
+        
+        <div class="stats-panel">
+            <h2>📊 识别统计</h2>
+            <div class="stats-grid">
+                <div class="stat-item" id="statTotalFrames">
+                    <div class="stat-label">处理帧数</div>
+                    <div class="stat-value" id="totalFrames">0</div>
+                </div>
+                <div class="stat-item" id="statTotalFaces">
+                    <div class="stat-label">检测人脸</div>
+                    <div class="stat-value" id="totalFaces">0</div>
+                </div>
+                <div class="stat-item" id="statRecognizedFaces">
+                    <div class="stat-label">识别成功</div>
+                    <div class="stat-value" id="recognizedFaces">0</div>
+                </div>
+                <div class="stat-item" id="statUnknownFaces">
+                    <div class="stat-label">未知人脸</div>
+                    <div class="stat-value" id="unknownFaces">0</div>
+                </div>
+                <div class="stat-item" id="statFPS">
+                    <div class="stat-label">FPS</div>
+                    <div class="stat-value" id="fps">0</div>
+                </div>
+                <div class="stat-item" id="statLatency">
+                    <div class="stat-label">平均延迟</div>
+                    <div class="stat-value" id="avgLatency">0ms</div>
+                </div>
+                <div class="stat-item" id="statActiveClients">
+                    <div class="stat-label">活跃客户端</div>
+                    <div class="stat-value" id="activeClients">0</div>
+                </div>
+                <div class="stat-item" id="statConnectionStatus">
+                    <div class="stat-label">连接状态</div>
+                    <div class="stat-value" id="connectionStatus">离线</div>
+                </div>
+            </div>
+            
+            <h3 style="margin: 15px 0 10px 0;">系统日志</h3>
+            <div class="logs-section" id="logsContainer">
+                <div id="logContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let socket = null;
+        let videoStream = null;
+        let isProcessing = false;
+        let animationFrameId = null;
+        let statsInterval = null;
+        let frameCount = 0;
+        let lastFrameTime = 0;
+        let currentFPS = 0;
+        let isWebSocketConnected = false;
+        let isCameraActive = false;
+        let lastRecognitionResults = [];
+        let frameCounter = 0;
+        let availableCameras = [];
+        let currentCameraId = null;
+        let latencyMeasurements = [];
+        let lastOptimizationUpdate = 0;
+        
+        // 固定配置 - 平衡速度和识别率
+        const CONFIG = {
+            sendInterval: 3, // 每3帧发送一次
+            imageQuality: 0.5, // 图像质量（提高以改善识别）
+            maxWidth: 640,  // 分辨率
+            maxHeight: 480
+        };
+        
+        // 延迟统计
+        const latencyStats = {
+            total: 0,
+            count: 0,
+            min: Infinity,
+            max: 0,
+            get average() {
+                return this.count > 0 ? Math.round(this.total / this.count) : 0;
+            }
+        };
+        
+        // DOM元素
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const canvasContext = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const screenshotBtn = document.getElementById('screenshotBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const fpsCounter = document.getElementById('fpsCounter');
+        const latencyInfo = document.getElementById('latencyInfo');
+        const resolutionInfo = document.getElementById('resolutionInfo');
+        const cameraSelector = document.getElementById('cameraSelector');
+        const cameraSelect = document.getElementById('cameraSelect');
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            checkBrowserCompatibility();
+            enumerateCameras();
+            statsInterval = setInterval(updateStats, 2000);
+            
+            // 页面关闭时清理资源
+            window.addEventListener('beforeunload', cleanup);
+        });
+        
+        // 检查浏览器兼容性
+        function checkBrowserCompatibility() {
+            const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+            
+            if (!hasGetUserMedia) {
+                const legacyGetUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || 
+                                          navigator.mozGetUserMedia || navigator.msGetUserMedia;
+                
+                if (legacyGetUserMedia) {
+                    navigator.mediaDevices = navigator.mediaDevices || {};
+                    navigator.mediaDevices.getUserMedia = function(constraints) {
+                        return new Promise(function(resolve, reject) {
+                            legacyGetUserMedia.call(navigator, constraints, resolve, reject);
+                        });
+                    };
+                }
+            }
+        }
+        
+        // 枚举可用摄像头
+        async function enumerateCameras() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                    addLog('警告: 浏览器不支持枚举设备');
+                    return;
+                }
+                
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                availableCameras = devices.filter(device => device.kind === 'videoinput');
+                
+                // 更新摄像头选择器
+                updateCameraSelector();
+                
+                if (availableCameras.length === 0) {
+                    addLog('未找到摄像头设备');
+                } else {
+                    addLog(`找到 ${availableCameras.length} 个摄像头设备`);
+                    
+                    // 如果有多个摄像头，显示选择器
+                    if (availableCameras.length > 1) {
+                        cameraSelector.style.display = 'flex';
+                    }
+                }
+            } catch (error) {
+                console.error('枚举摄像头失败:', error);
+                addLog(`枚举摄像头失败: ${error.message}`);
+            }
+        }
+        
+        // 更新摄像头选择器
+        function updateCameraSelector() {
+            cameraSelect.innerHTML = '';
+            
+            availableCameras.forEach((camera, index) => {
+                const option = document.createElement('option');
+                option.value = camera.deviceId;
+                option.textContent = camera.label || `摄像头 ${index + 1}`;
+                cameraSelect.appendChild(option);
+            });
+            
+            // 如果有摄像头，设置默认选择第一个
+            if (availableCameras.length > 0) {
+                currentCameraId = availableCameras[0].deviceId;
+            }
+        }
+        
+
+        
+        // 初始化WebSocket连接
+        function initializeSocket() {
+            console.log('[WebSocket] 开始初始化连接...');
+            
+            // 配置Socket.IO连接选项
+            socket = io({
+                transports: ['websocket', 'polling'],  // 优先使用WebSocket，回退到轮询
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000
+            });
+            
+            socket.on('connect', function() {
+                console.log('[WebSocket] 连接成功, ID:', socket.id);
+                isWebSocketConnected = true;
+                updateStatus('服务器连接成功', 'connected');
+                addLog('WebSocket连接已建立, ID: ' + socket.id);
+            });
+            
+            socket.on('connect_error', function(error) {
+                console.error('[WebSocket] 连接错误:', error);
+                addLog(`WebSocket连接错误: ${error.message || error}`);
+            });
+            
+            socket.on('reconnect', function(attemptNumber) {
+                console.log('[WebSocket] 重新连接成功, 尝试次数:', attemptNumber);
+                addLog(`WebSocket重新连接成功 (尝试 ${attemptNumber})`);
+            });
+            
+            socket.on('reconnect_error', function(error) {
+                console.error('[WebSocket] 重新连接错误:', error);
+            });
+            
+            socket.on('disconnect', function() {
+                isWebSocketConnected = false;
+                updateStatus('服务器连接已断开', 'disconnected');
+                addLog('WebSocket连接已断开');
+                
+                if (isCameraActive) {
+                    updateStatus('摄像头已启动 (服务器断开)', 'camera-active');
+                }
+            });
+            
+            socket.on('connected', function(data) {
+                addLog(`服务器连接确认: ${data.message}`);
+            });
+            
+            socket.on('recognition_result', function(data) {
+                // 计算延迟（使用客户端发送的时间戳）
+                const clientTimestamp = data.client_timestamp || 0;
+                let latency = 0;
+                
+                if (clientTimestamp > 0) {
+                    latency = Date.now() - clientTimestamp;
+                }
+                
+                // 确保延迟不为负数
+                latency = Math.max(0, latency);
+                
+                // 更新延迟统计
+                updateLatencyStats(latency);
+                
+                // 保存识别结果，将在绘制时使用
+                lastRecognitionResults = data.results || [];
+            });
+            
+            socket.on('error', function(data) {
+                addLog(`服务器错误: ${data.message}`);
+                console.error('服务器错误:', data);
+            });
+            
+            socket.on('screenshot_saved', function(data) {
+                addLog(`截图已保存: ${data.filename || data.path}`);
+                console.log('截图信息:', data);
+            });
+            
+            socket.on('screenshot_error', function(data) {
+                addLog(`截图失败: ${data.message}`);
+            });
+        }
+        
+        // 更新延迟统计
+        function updateLatencyStats(latency) {
+            latencyStats.total += latency;
+            latencyStats.count++;
+            latencyStats.min = Math.min(latencyStats.min, latency);
+            latencyStats.max = Math.max(latencyStats.max, latency);
+            
+            // 更新显示
+            latencyInfo.textContent = `延迟: ${latency}ms (平均: ${latencyStats.average}ms)`;
+        }
+        
+        // 启动摄像头
+        async function startCamera() {
+            try {
+                addLog('正在启动摄像头...');
+                
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    addLog('错误: 您的浏览器不支持摄像头访问');
+                    updateStatus('浏览器不支持摄像头', 'error');
+                    return;
+                }
+                
+                // 如果没有摄像头设备，尝试重新枚举
+                if (availableCameras.length === 0) {
+                    await enumerateCameras();
+                    
+                    if (availableCameras.length === 0) {
+                        addLog('错误: 未找到摄像头设备');
+                        updateStatus('未找到摄像头', 'error');
+                        return;
+                    }
+                }
+                
+                // 获取选定的摄像头ID
+                const selectedCameraId = cameraSelect.value || currentCameraId;
+                
+                // 使用固定分辨率
+                const maxWidth = CONFIG.maxWidth;
+                const maxHeight = CONFIG.maxHeight;
+                
+                // 尝试获取合适的分辨率
+                const constraints = {
+                    video: {
+                        deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
+                        width: { ideal: maxWidth },
+                        height: { ideal: maxHeight },
+                        frameRate: { ideal: 30 },
+                        aspectRatio: { ideal: 16/9 }
+                    },
+                    audio: false
+                };
+                
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = videoStream;
+                
+                // 等待视频加载
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = resolve;
+                });
+                
+                // 获取实际分辨率
+                const actualWidth = videoElement.videoWidth;
+                const actualHeight = videoElement.videoHeight;
+                
+                // 设置Canvas为摄像头原始分辨率
+                canvasElement.width = actualWidth;
+                canvasElement.height = actualHeight;
+                
+                // 更新分辨率信息
+                resolutionInfo.textContent = `分辨率: ${actualWidth}×${actualHeight}`;
+                
+                // 开始处理帧
+                isProcessing = true;
+                isCameraActive = true;
+                
+                // 使用requestAnimationFrame实现流畅渲染
+                function processFrame() {
+                    if (!isProcessing || !videoStream) return;
+                    
+                    try {
+                        // 绘制当前视频帧到Canvas
+                        canvasContext.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+                        
+                        // 绘制人脸识别框（使用上一次的结果，避免闪烁）
+                        drawRecognitionResults(lastRecognitionResults);
+                        
+                        // 计算FPS
+                        const now = performance.now();
+                        if (lastFrameTime > 0) {
+                            const delta = now - lastFrameTime;
+                            currentFPS = Math.round(1000 / delta);
+                            fpsCounter.textContent = `FPS: ${currentFPS}`;
+                        }
+                        lastFrameTime = now;
+                        frameCount++;
+                        
+                        // 发送帧到服务器 - 固定间隔
+                        frameCounter++;
+                        if (frameCounter % CONFIG.sendInterval === 0 && isWebSocketConnected) {
+                            const imageData = canvasElement.toDataURL('image/jpeg', CONFIG.imageQuality);
+                            socket.emit('frame', { 
+                                image_data: imageData,
+                                timestamp: Date.now()
+                            });
+                        }
+                        
+                        // 继续下一帧
+                        animationFrameId = requestAnimationFrame(processFrame);
+                        
+                    } catch (error) {
+                        console.error('处理帧失败:', error);
+                    }
+                }
+                
+                // 启动渲染循环
+                animationFrameId = requestAnimationFrame(processFrame);
+                
+                // 更新UI状态
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                screenshotBtn.disabled = false;
+                
+                updateStatus('摄像头已启动，正在识别...', 'camera-active');
+                
+                // 获取摄像头名称用于日志
+                const selectedCamera = availableCameras.find(cam => cam.deviceId === selectedCameraId);
+                const cameraName = selectedCamera ? (selectedCamera.label || '未知摄像头') : '未知摄像头';
+                
+                addLog(`摄像头启动成功: ${cameraName}, 分辨率: ${actualWidth}×${actualHeight}`);
+                
+            } catch (error) {
+                console.error('启动摄像头失败:', error);
+                addLog(`摄像头启动失败: ${error.message}`);
+                
+                if (error.name === 'NotAllowedError') {
+                    addLog('摄像头访问被拒绝，请检查浏览器权限设置');
+                } else if (error.name === 'NotFoundError') {
+                    addLog('未找到可用的摄像头设备');
+                } else if (error.name === 'NotSupportedError') {
+                    addLog('当前环境不支持摄像头功能');
+                } else if (error.name === 'NotReadableError') {
+                    addLog('摄像头设备正被其他应用占用');
+                } else if (error.name === 'OverconstrainedError') {
+                    addLog('无法满足摄像头约束条件，尝试切换摄像头');
+                    // 尝试切换到下一个摄像头
+                    switchToNextCamera();
+                }
+                
+                updateStatus('摄像头启动失败', 'error');
+            }
+        }
+        
+
+        
+        // 停止摄像头
+        function stopCamera() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            isProcessing = false;
+            isCameraActive = false;
+            
+            // 清除Canvas
+            canvasContext.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // 更新UI状态
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            screenshotBtn.disabled = true;
+            
+            // 更新状态
+            if (isWebSocketConnected) {
+                updateStatus('摄像头已停止', 'connected');
+            } else {
+                updateStatus('摄像头已停止', 'disconnected');
+            }
+            
+            // 重置信息显示
+            fpsCounter.textContent = 'FPS: 0';
+            latencyInfo.textContent = '延迟: 0ms';
+            resolutionInfo.textContent = '分辨率: 未启动';
+            
+            addLog('摄像头已停止');
+        }
+        
+        // 切换摄像头
+        async function switchCamera() {
+            if (!isCameraActive) {
+                return; // 如果摄像头未启动，不执行切换
+            }
+            
+            const selectedCameraId = cameraSelect.value;
+            
+            if (selectedCameraId === currentCameraId) {
+                return; // 如果选择的摄像头已经是当前摄像头，不执行切换
+            }
+            
+            addLog(`正在切换到摄像头: ${cameraSelect.options[cameraSelect.selectedIndex].text}`);
+            
+            // 保存当前状态
+            const wasProcessing = isProcessing;
+            
+            // 停止当前摄像头
+            stopCamera();
+            
+            // 设置新的摄像头ID
+            currentCameraId = selectedCameraId;
+            
+            // 重新启动摄像头
+            if (wasProcessing) {
+                setTimeout(startCamera, 100); // 稍等片刻再启动
+            }
+        }
+        
+        // 绘制识别结果 - 优化版本，避免闪烁
+        function drawRecognitionResults(results) {
+            if (!results || results.length === 0) return;
+            
+            // 保存当前Canvas状态
+            canvasContext.save();
+            
+            results.forEach(result => {
+                const [x1, y1, x2, y2] = result.bbox;
+                const personName = result.person_name;
+                const similarity = result.similarity;
+                const confidence = result.confidence;
+                
+                // 确定颜色
+                const isKnown = personName !== "未知";
+                const boxColor = isKnown ? '#00ff00' : '#ff0000';
+                const textColor = '#ffffff';
+                
+                // 绘制人脸框 - 使用更粗的线条
+                canvasContext.strokeStyle = boxColor;
+                canvasContext.lineWidth = 3;
+                canvasContext.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // 绘制文本背景
+                const nameText = isKnown ? personName : '未知';
+                canvasContext.font = 'bold 18px Microsoft YaHei, Arial, sans-serif';
+                const nameTextWidth = canvasContext.measureText(nameText).width;
+                
+                // 文本背景
+                canvasContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                canvasContext.fillRect(x1 - 2, y1 - 25, nameTextWidth + 10, 25);
+                
+                // 绘制姓名文本
+                canvasContext.fillStyle = textColor;
+                canvasContext.fillText(nameText, x1 + 3, y1 - 7);
+                
+                // 绘制相似度（如果已知）
+                if (isKnown) {
+                    const similarityText = `相似度: ${(similarity * 100).toFixed(1)}%`;
+                    const similarityWidth = canvasContext.measureText(similarityText).width;
+                    
+                    canvasContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    canvasContext.fillRect(x1 - 2, y2, similarityWidth + 10, 20);
+                    
+                    canvasContext.fillStyle = textColor;
+                    canvasContext.fillText(similarityText, x1 + 3, y2 + 15);
+                }
+                
+                // 绘制置信度
+                const confidenceText = `置信度: ${(confidence * 100).toFixed(1)}%`;
+                const confidenceWidth = canvasContext.measureText(confidenceText).width;
+                
+                canvasContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                canvasContext.fillRect(x1 - 2, y2 + 20, confidenceWidth + 10, 20);
+                
+                canvasContext.fillStyle = textColor;
+                canvasContext.fillText(confidenceText, x1 + 3, y2 + 35);
+            });
+            
+            // 恢复Canvas状态
+            canvasContext.restore();
+        }
+        
+        // 截图功能
+        function takeScreenshot() {
+            if (!videoStream) {
+                addLog('错误: 摄像头未启动');
+                return;
+            }
+            
+            try {
+                const imageData = canvasElement.toDataURL('image/jpeg', 1.0); // 最高质量
+                socket.emit('screenshot', { image_data: imageData });
+                addLog('正在保存截图...');
+            } catch (error) {
+                console.error('截图失败:', error);
+                addLog(`截图失败: ${error.message}`);
+            }
+        }
+        
+        // 更新状态显示
+        function updateStatus(message, status) {
+            statusText.textContent = message;
+            
+            // 移除所有状态类
+            statusDot.classList.remove('connected', 'camera-active', 'disconnected');
+            
+            // 添加当前状态类
+            if (status === 'connected') {
+                statusDot.classList.add('connected');
+            } else if (status === 'camera-active') {
+                statusDot.classList.add('camera-active');
+            } else {
+                statusDot.classList.add('disconnected');
+            }
+        }
+        
+        // 更新统计信息
+        async function updateStats() {
+            try {
+                const response = await fetch('/stats');
+                const stats = await response.json();
+                
+                if (stats.error) {
+                    console.error('获取统计信息失败:', stats.error);
+                    return;
+                }
+                
+                // 更新统计显示
+                document.getElementById('totalFrames').textContent = stats.total_frames.toLocaleString();
+                document.getElementById('totalFaces').textContent = stats.total_faces.toLocaleString();
+                document.getElementById('recognizedFaces').textContent = stats.recognized_faces.toLocaleString();
+                document.getElementById('unknownFaces').textContent = stats.unknown_faces.toLocaleString();
+                document.getElementById('fps').textContent = stats.fps ? stats.fps.toFixed(1) : '0';
+                document.getElementById('avgLatency').textContent = latencyStats.average + 'ms';
+                document.getElementById('activeClients').textContent = stats.active_clients.toLocaleString();
+                document.getElementById('connectionStatus').textContent = isWebSocketConnected ? '在线' : '离线';
+                
+                // 高亮延迟统计
+                const latencyStat = document.getElementById('statLatency');
+                latencyStat.classList.toggle('highlight', latencyStats.average > 300);
+                
+            } catch (error) {
+                console.error('更新统计信息失败:', error);
+            }
+        }
+        
+        // 添加日志
+        function addLog(message) {
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span>${message}`;
+            logContent.appendChild(logEntry);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+        
+        // 显示/隐藏日志
+        function toggleLogs() {
+            const logsContainer = document.getElementById('logsContainer');
+            if (logsContainer.style.display === 'none') {
+                logsContainer.style.display = 'block';
+                document.getElementById('logsBtn').textContent = '📋 隐藏日志';
+            } else {
+                logsContainer.style.display = 'none';
+                document.getElementById('logsBtn').textContent = '📋 显示日志';
+            }
+        }
+        
+        // 清理资源
+        function cleanup() {
+            stopCamera();
+            if (statsInterval) {
+                clearInterval(statsInterval);
+            }
+            if (socket) {
+                socket.disconnect();
+            }
+        }
+    </script>
+</body>
+</html>
