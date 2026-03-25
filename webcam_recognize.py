@@ -4,7 +4,6 @@ eventlet.monkey_patch()
 import os
 import cv2
 import numpy as np
-import pickle
 import base64
 import logging
 import ssl
@@ -12,6 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
+
+from safe_storage import (
+    DEFAULT_DATABASE_PATH,
+    load_face_database,
+    safe_child_path,
+    sanitize_filename_component,
+)
 
 # ============================ 配置参数 ============================
 class WebConfig:
@@ -156,20 +162,16 @@ class WebFaceRecognizer:
             self.logger.error(f"模型初始化失败: {e}")
             raise
     
-    def load_database(self, database_path='face_database.pkl'):
+    def load_database(self, database_path=DEFAULT_DATABASE_PATH):
         """加载人脸数据库"""
         self.logger.info(f"加载人脸数据库: {database_path}")
         
-        if not Path(database_path).exists():
-            self.logger.error(f"数据库文件不存在: {database_path}")
-            return False
-        
         try:
-            with open(database_path, 'rb') as f:
-                database = pickle.load(f)
-            
+            database = load_face_database(database_path)
             self.face_database = database.get('face_database', {})
             self.logger.info(f"✓ 数据库加载成功，包含 {len(self.face_database)} 个已知人物")
+            if database.get('migrated_from_legacy'):
+                self.logger.info(f"✓ 已将旧版数据库迁移到安全格式: {database['database_path']}")
             
             for person_name, data in self.face_database.items():
                 self.logger.info(f"  - {person_name}: {data.get('sample_count', 0)} 张样本")
@@ -256,8 +258,9 @@ class WebFaceRecognizer:
         """保存截图"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"screenshot_{timestamp}_{client_id}_{self.screenshot_count:04d}.jpg"
-            filepath = Path(self.config.SCREENSHOT_FOLDER) / filename
+            safe_client_id = sanitize_filename_component(client_id, fallback="client")
+            filename = f"screenshot_{timestamp}_{safe_client_id}_{self.screenshot_count:04d}.jpg"
+            filepath = safe_child_path(self.config.SCREENSHOT_FOLDER, filename)
             
             # 解码并保存图像
             image_bytes = base64.b64decode(image_data.split(',')[1])
@@ -448,7 +451,7 @@ def main():
         recognizer = WebFaceRecognizer(config)
         
         # 加载人脸数据库
-        if not recognizer.load_database('face_database.pkl'):
+        if not recognizer.load_database(DEFAULT_DATABASE_PATH):
             print("❌ 数据库加载失败，请先运行训练程序")
             return
         

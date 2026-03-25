@@ -1,12 +1,12 @@
-import os
 import cv2
 import numpy as np
-import pickle
 import random
 from pathlib import Path
 import logging
 from tqdm import tqdm
 from datetime import datetime
+
+from safe_storage import DEFAULT_DATABASE_PATH, save_face_database
 
 # ============================ 全局配置参数 ============================
 class Config:
@@ -263,18 +263,16 @@ class FixedFaceTrainer:
         
         return self.processing_stats['successful_persons'] > 0
     
-    def save_database(self, save_path='face_database.pkl'):
+    def save_database(self, save_path=DEFAULT_DATABASE_PATH):
         """保存人脸数据库"""
         try:
-            with open(save_path, 'wb') as f:
-                pickle.dump({
-                    'face_database': self.face_database,
-                    'processing_stats': self.processing_stats,
-                    'config': self.config.__dict__,
-                    'timestamp': datetime.now().isoformat()
-                }, f)
-            
-            self.logger.info(f"人脸数据库已保存: {save_path}")
+            saved_path = save_face_database(
+                self.face_database,
+                processing_stats=self.processing_stats,
+                config=self.config,
+                save_path=save_path
+            )
+            self.logger.info(f"人脸数据库已保存: {saved_path}")
             
         except Exception as e:
             self.logger.error(f"保存数据库失败: {e}")
@@ -288,10 +286,10 @@ def main():
         trainer = FixedFaceTrainer(config)
         
         if trainer.train_from_folder('./traindata'):
-            trainer.save_database('face_database.pkl')
+            trainer.save_database(DEFAULT_DATABASE_PATH)
             
             print("\n🎉 训练完成！")
-            print("📁 所有人脸数据保存在: face_database.pkl")
+            print(f"📁 所有人脸数据保存在: {DEFAULT_DATABASE_PATH}")
         else:
             print("❌ 训练失败，请检查数据路径和格式")
             
