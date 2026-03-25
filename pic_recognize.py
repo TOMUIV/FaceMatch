@@ -1,13 +1,19 @@
 import os
 import cv2
 import numpy as np
-import pickle
 from pathlib import Path
 import logging
 from tqdm import tqdm
 from datetime import datetime
 import sys
 from io import StringIO
+
+from safe_storage import (
+    DEFAULT_DATABASE_PATH,
+    load_face_database,
+    safe_child_path,
+    safe_output_filename,
+)
 
 # ============================ 全局配置参数 ============================
 class RecognizeConfig:
@@ -167,20 +173,16 @@ class FaceRecognizer:
         output_path.mkdir(exist_ok=True)
         self.logger.info(f"输出文件夹: {output_path.absolute()}")
     
-    def load_database(self, database_path='face_database.pkl'):
+    def load_database(self, database_path=DEFAULT_DATABASE_PATH):
         """加载人脸数据库"""
         self.logger.info(f"加载人脸数据库: {database_path}")
         
-        if not Path(database_path).exists():
-            self.logger.error(f"数据库文件不存在: {database_path}")
-            return False
-        
         try:
-            with open(database_path, 'rb') as f:
-                database = pickle.load(f)
-            
+            database = load_face_database(database_path)
             self.face_database = database['face_database']
             self.logger.info(f"✓ 数据库加载成功，包含 {len(self.face_database)} 个已知人物")
+            if database.get('migrated_from_legacy'):
+                self.logger.info(f"✓ 已将旧版数据库迁移到安全格式: {database['database_path']}")
             
             # 打印已知人物列表
             for person_name, data in self.face_database.items():
@@ -428,10 +430,8 @@ class FaceRecognizer:
             if result_image is not None:
                 # 保存结果图片
                 if self.config.SAVE_IMAGES:
-                    output_path = Path(self.config.OUTPUT_FOLDER) / f"result_{image_name}"
-                    
-                    # 确保输出目录存在
-                    output_path.parent.mkdir(exist_ok=True, parents=True)
+                    safe_name = safe_output_filename(image_name, prefix="result_", fallback="image")
+                    output_path = safe_child_path(self.config.OUTPUT_FOLDER, safe_name)
                     
                     # 保存图片
                     try:
@@ -487,7 +487,7 @@ def main():
         recognizer = FaceRecognizer(config)
         
         # 加载人脸数据库
-        if not recognizer.load_database('face_database.pkl'):
+        if not recognizer.load_database(DEFAULT_DATABASE_PATH):
             print("❌ 数据库加载失败，请先运行训练程序")
             return
         

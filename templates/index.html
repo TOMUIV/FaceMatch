@@ -448,6 +448,10 @@
     </div>
 
     <script>
+        const APP_CONFIG = {
+            socketAuthToken: {{ socket_auth_token|tojson }},
+        };
+
         // 全局变量
         let socket = null;
         let videoStream = null;
@@ -588,7 +592,10 @@
                 transports: ['websocket', 'polling'],  // 优先使用WebSocket，回退到轮询
                 reconnection: true,
                 reconnectionAttempts: 5,
-                reconnectionDelay: 1000
+                reconnectionDelay: 1000,
+                auth: {
+                    token: APP_CONFIG.socketAuthToken
+                }
             });
             
             socket.on('connect', function() {
@@ -981,7 +988,11 @@
         // 更新统计信息
         async function updateStats() {
             try {
-                const response = await fetch('/stats');
+                const response = await fetch('/stats', {
+                    headers: {
+                        'X-FaceMatch-Token': APP_CONFIG.socketAuthToken
+                    }
+                });
                 const stats = await response.json();
                 
                 if (stats.error) {
